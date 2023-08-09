@@ -11,6 +11,7 @@ target/
 *.iws
 *.iml
 *.ipr
+*.idea
 
 ### Eclipse ###
 .apt_generated
@@ -29,7 +30,7 @@ target/
 /.nb-gradle/
 build/
 !**/src/main/**/build/
-!**/src/test/**/build/
+!**/src/test/**/build/3
 
 ### VS Code ###
 .vscode/
