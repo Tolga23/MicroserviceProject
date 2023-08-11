@@ -1,5 +1,7 @@
 package com.microserviceapp.ordermicroservice.service;
 
+import brave.Span;
+import brave.Tracer;
 import com.microserviceapp.ordermicroservice.dto.InventoryResponseDto;
 import com.microserviceapp.ordermicroservice.dto.OrderLineItemsDto;
 import com.microserviceapp.ordermicroservice.dto.OrderRequestDto;
@@ -23,6 +25,7 @@ public class OrderService {
 
     private final OrderRepository orderRepository;
     private final WebClient.Builder webClientBuilder;
+    private final Tracer tracer;
 
     public String placedOrder(OrderRequestDto orderRequestDto) {
         Order order = new Order();
@@ -37,17 +40,28 @@ public class OrderService {
 
         List<String> skuCodesList = getSkuCodesList(order);
 
-        InventoryResponseDto[] inventoryResponseDtos = callToInventoryService(skuCodesList);
+        Span callingInventoryService = tracer.nextSpan().name("Before calling inventory service");
 
-        boolean allProductsInStock = Arrays.stream(inventoryResponseDtos)
-                .allMatch(InventoryResponseDto::isInStock);
+        try(Tracer.SpanInScope spanInScope = tracer.withSpanInScope(callingInventoryService.start())){
+            InventoryResponseDto[] inventoryResponseDtos = callToInventoryService(skuCodesList);
 
-        if (allProductsInStock) {
-            orderRepository.save(order);
-            return OrderResponseMessage.ORDER_PLACED_SUCCESSFULLY.getMessage();
-        }else {
-            throw new IllegalArgumentException("Product is out of stock");
+            boolean allProductsInStock = Arrays.stream(inventoryResponseDtos)
+                    .allMatch(InventoryResponseDto::isInStock);
+
+            if (allProductsInStock) {
+                orderRepository.save(order);
+                return OrderResponseMessage.ORDER_PLACED_SUCCESSFULLY.getMessage();
+            }else {
+                throw new IllegalArgumentException(OrderResponseMessage.PRODUCT_OUT_OF_STOCK.getMessage());
+            }
+        } catch (Exception e) {
+            callingInventoryService.error(e);
+            throw e;
+        } finally {
+            callingInventoryService.finish();
         }
+
+
 
     }
 

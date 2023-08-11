@@ -18,11 +18,7 @@ public class InventoryService {
 
     // SneakyThrows used for demo purposes. It is not recommended to use it in production code
     @Transactional(readOnly = true)
-    @SneakyThrows
     public List<InventoryResponseDto> isInStock(List<String> skuCode) {
-        log.info("Wait Started");
-        Thread.sleep(10000);
-        log.info("Wait Ended");
         return inventoryRepository.findBySkuCodeIn(skuCode)
                 .stream()
                 .map(inventory -> InventoryResponseDto.builder()
