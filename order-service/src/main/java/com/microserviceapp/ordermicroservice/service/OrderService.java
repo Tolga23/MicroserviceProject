@@ -6,10 +6,12 @@ import com.microserviceapp.ordermicroservice.dto.InventoryResponseDto;
 import com.microserviceapp.ordermicroservice.dto.OrderLineItemsDto;
 import com.microserviceapp.ordermicroservice.dto.OrderRequestDto;
 import com.microserviceapp.ordermicroservice.enums.OrderResponseMessage;
+import com.microserviceapp.ordermicroservice.event.OrderPlacedEvent;
 import com.microserviceapp.ordermicroservice.model.Order;
 import com.microserviceapp.ordermicroservice.model.OrderLineItems;
 import com.microserviceapp.ordermicroservice.repository.OrderRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.reactive.function.client.WebClient;
@@ -26,6 +28,7 @@ public class OrderService {
     private final OrderRepository orderRepository;
     private final WebClient.Builder webClientBuilder;
     private final Tracer tracer;
+    private final KafkaTemplate<String,OrderPlacedEvent> kafkaTemplate;
 
     public String placedOrder(OrderRequestDto orderRequestDto) {
         Order order = new Order();
@@ -42,7 +45,7 @@ public class OrderService {
 
         Span callingInventoryService = tracer.nextSpan().name("Before calling inventory service");
 
-        try(Tracer.SpanInScope spanInScope = tracer.withSpanInScope(callingInventoryService.start())){
+        try (Tracer.SpanInScope spanInScope = tracer.withSpanInScope(callingInventoryService.start())) {
             InventoryResponseDto[] inventoryResponseDtos = callToInventoryService(skuCodesList);
 
             boolean allProductsInStock = Arrays.stream(inventoryResponseDtos)
@@ -50,8 +53,9 @@ public class OrderService {
 
             if (allProductsInStock) {
                 orderRepository.save(order);
+                kafkaTemplate.send("notificationTopic", new OrderPlacedEvent(order.getOrderNumber()));
                 return OrderResponseMessage.ORDER_PLACED_SUCCESSFULLY.getMessage();
-            }else {
+            } else {
                 throw new IllegalArgumentException(OrderResponseMessage.PRODUCT_OUT_OF_STOCK.getMessage());
             }
         } catch (Exception e) {
@@ -60,9 +64,6 @@ public class OrderService {
         } finally {
             callingInventoryService.finish();
         }
-
-
-
     }
 
     private InventoryResponseDto[] callToInventoryService(List<String> skuCodes) {
@@ -76,7 +77,6 @@ public class OrderService {
                 .bodyToMono(InventoryResponseDto[].class)
                 .block();
 
-      
 
         return inventoryResponseDtos;
     }
