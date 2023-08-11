@@ -3,6 +3,7 @@ package com.microserviceapp.ordermicroservice.service;
 import com.microserviceapp.ordermicroservice.dto.InventoryResponseDto;
 import com.microserviceapp.ordermicroservice.dto.OrderLineItemsDto;
 import com.microserviceapp.ordermicroservice.dto.OrderRequestDto;
+import com.microserviceapp.ordermicroservice.enums.OrderResponseMessage;
 import com.microserviceapp.ordermicroservice.model.Order;
 import com.microserviceapp.ordermicroservice.model.OrderLineItems;
 import com.microserviceapp.ordermicroservice.repository.OrderRepository;
@@ -23,7 +24,7 @@ public class OrderService {
     private final OrderRepository orderRepository;
     private final WebClient.Builder webClientBuilder;
 
-    public void placedOrder(OrderRequestDto orderRequestDto) {
+    public String placedOrder(OrderRequestDto orderRequestDto) {
         Order order = new Order();
         order.setOrderNumber(UUID.randomUUID().toString());
 
@@ -43,6 +44,7 @@ public class OrderService {
 
         if (allProductsInStock) {
             orderRepository.save(order);
+            return OrderResponseMessage.ORDER_PLACED_SUCCESSFULLY.getMessage();
         }else {
             throw new IllegalArgumentException("Product is out of stock");
         }
