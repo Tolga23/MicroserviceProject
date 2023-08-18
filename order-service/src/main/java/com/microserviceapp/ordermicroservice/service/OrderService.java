@@ -31,16 +31,10 @@ public class OrderService {
     private final KafkaTemplate<String,OrderPlacedEvent> kafkaTemplate;
 
     public String placedOrder(OrderRequestDto orderRequestDto) {
-        Order order = new Order();
-        order.setOrderNumber(UUID.randomUUID().toString());
+        List<OrderLineItems> orderLineItems = getOrderLineItems(orderRequestDto);
 
-        List<OrderLineItems> orderLineItems = orderRequestDto.getOrderLineItemsDtoList()
-                .stream()
-                .map(orderLineItemsDto -> mapToDto(orderLineItemsDto))
-                .toList();
-
-        order.setOrderLineItemsList(orderLineItems);
-
+        Order order = createNewOrder(orderLineItems);
+        
         List<String> skuCodesList = getSkuCodesList(order);
 
         Span callingInventoryService = tracer.nextSpan().name("Before calling inventory service");
@@ -48,13 +42,10 @@ public class OrderService {
         try (Tracer.SpanInScope spanInScope = tracer.withSpanInScope(callingInventoryService.start())) {
             InventoryResponseDto[] inventoryResponseDtos = callToInventoryService(skuCodesList);
 
-            boolean allProductsInStock = Arrays.stream(inventoryResponseDtos)
-                    .allMatch(InventoryResponseDto::isInStock);
+            boolean allProductsInStock = checkAllProductsInStock(inventoryResponseDtos);
 
             if (allProductsInStock) {
-                orderRepository.save(order);
-                kafkaTemplate.send("notificationTopic", new OrderPlacedEvent(order.getOrderNumber()));
-                return OrderResponseMessage.ORDER_PLACED_SUCCESSFULLY.getMessage();
+                return saveOrder(order);
             } else {
                 throw new IllegalArgumentException(OrderResponseMessage.PRODUCT_OUT_OF_STOCK.getMessage());
             }
@@ -64,6 +55,37 @@ public class OrderService {
         } finally {
             callingInventoryService.finish();
         }
+    }
+
+    private String saveOrder(Order order) {
+        orderRepository.save(order);
+        kafkaTemplate.send("notificationTopic", new OrderPlacedEvent(order.getOrderNumber()));
+        return OrderResponseMessage.ORDER_PLACED_SUCCESSFULLY.getMessage();
+    }
+
+    private Order createNewOrder(List<OrderLineItems> orderLineItems) {
+        Order order = new Order();
+        order.setOrderNumber(getRandomOrderNumber());
+        order.setOrderLineItemsList(orderLineItems);
+        return order;
+    }
+
+    private String getRandomOrderNumber() {
+        return UUID.randomUUID().toString();
+    }
+
+    private List<OrderLineItems> getOrderLineItems(OrderRequestDto orderRequestDto) {
+        List<OrderLineItems> orderLineItems = orderRequestDto.getOrderLineItemsDtoList()
+                .stream()
+                .map(orderLineItemsDto -> mapToDto(orderLineItemsDto))
+                .toList();
+        return orderLineItems;
+    }
+
+    private boolean checkAllProductsInStock(InventoryResponseDto[] inventoryResponseDtos) {
+        boolean allProductsInStock = Arrays.stream(inventoryResponseDtos)
+                .allMatch(InventoryResponseDto::isInStock);
+        return allProductsInStock;
     }
 
     private InventoryResponseDto[] callToInventoryService(List<String> skuCodes) {
